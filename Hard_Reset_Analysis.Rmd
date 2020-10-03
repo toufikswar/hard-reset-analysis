@@ -1,0 +1,588 @@
+---
+title: "Hard Reset Analysis"
+output:
+  html_notebook: default
+---
+
+### Loading Packages
+We load the required libraries.
+```{r echo=T,eval=T,warning=FALSE, message=FALSE}
+library("tidyverse")
+library("lubridate")
+```
+
+<br><br>
+
+### Loading Data
+
+Loading the data into a tibble. In that case the csv generated used the tabulation separator. Adapt the delim parameter to your specific use case (coma, semicolon etc).
+
+#### All devices experiencing hard resets, crashes issues
+```{r echo=F,eval=T,warning=FALSE, message=FALSE}
+
+df.devices.hardresets <- read_delim(file = "./data-raw/samples/sample_devices_hardsresets_20200310.csv",
+                                delim = "\t")
+head(df.devices.hardresets)
+```
+<br/><br/>
+
+#### All devices available in the company
+```{r echo=F,eval=T,warning=FALSE, message=FALSE}
+df.all.devices <- read_delim(file = "./data-raw/samples/sample_all_devices_20200310.csv",
+                     delim = "\t")
+head(df.all.devices)
+```
+<br/><br/>
+
+#### All devices errors, crashes and hard resets events for last 7 days
+```{r echo=F,eval=T,warning=FALSE, message=FALSE}
+
+df.events <- read_delim(file = "./data-raw/samples/sample_events_device_errors_20200310.csv",
+                        delim = "\t")
+
+head(df.events)
+```
+<br/><br/>
+
+#### All devices CPU, Memory, IO warnings for last 7 days
+```{r echo=F,eval=T,warning=FALSE, message=FALSE}
+
+df.warnings.4 <- read_delim(file = "./data-raw/samples/sample_device_warnings_20200304.csv",
+                           delim = "\t")
+df.warnings.5 <- read_delim(file = "./data-raw/samples/sample_device_warnings_20200305.csv",
+                           delim = "\t")
+df.warnings.6 <- read_delim(file = "./data-raw/samples/sample_device_warnings_20200306.csv",
+                           delim = "\t")
+df.warnings.7 <- read_delim(file = "./data-raw/samples/sample_device_warnings_20200307.csv",
+                           delim = "\t")
+df.warnings.9 <- read_delim(file = "./data-raw/samples/sample_device_warnings_20200309.csv",
+                           delim = "\t")
+
+df.warnings <- bind_rows(df.warnings.4, df.warnings.5, df.warnings.6, df.warnings.7, df.warnings.9)
+
+head(df.warnings)
+```
+<br/><br/>
+
+
+#### All devices installations
+```{r echo=F,eval=T,warning=FALSE, message=FALSE}
+
+df.installations <- read.csv2(file = "./data-raw/samples/sample_installations_events_March_4_10.csv",
+                           sep = ";", quote = "\"")
+
+head(df.installations)
+```
+
+<br/><br/>
+
+### Data cleaning and processing
+
+We will not show the code here. We just create the dateframes needed for the analysis.
+
+```{r echo=F,eval=T,warning=FALSE, message=FALSE}
+
+# Number of devices per OS
+df.all.os <- df.all.devices %>%
+  group_by(`OS version and architecture`) %>%
+  summarize(devices_per_os = n())
+
+df.all.os %>%
+  arrange(-devices_per_os)
+
+# Number of devices por Build
+df.all.builds <- df.all.devices %>%
+  group_by(`OS build`) %>%
+  summarize(devices_per_build = n())
+
+# Number of devices per Entity
+df.all.entity <- df.all.devices %>%
+  group_by(Entity) %>%
+  summarize(devices_per_entity = n())
+
+# Dataframes used to draw number of Models per manufacturer
+df.all.os <- df.all.devices %>%
+  group_by(`OS version and architecture`) %>%
+  summarize(devices_per_os = n())
+
+# Dataframes used to draw number of Models per manufacturer
+df.all.manufactur <- df.all.devices %>%
+  group_by(`Device manufacturer`) %>%
+  summarize(devices_per_manufacturer = n())
+
+# Dataframes used to draw number of Models (Lenovo only)
+df.all.levovo <- df.all.devices %>%
+  filter(`Device manufacturer` == "Lenovo") %>%
+  group_by(`Device product version`) %>%
+  summarize(devices_model = n())
+
+# Dataframes used to draw number of hardresets per Entity
+df.hardreset.entity <- df.events %>%
+  inner_join(df.all.devices, by = c("Device name" = "Name")) %>%
+  filter(Type =="hard reset") %>%
+  group_by(Entity) %>%
+  summarize(number_hardresets = n())
+
+# Dataframes used to draw the number of hard resets per OS
+df.hardreset.os <- df.events %>%
+  inner_join(df.all.devices, by = c("Device name" = "Name")) %>%
+  filter(Type =="hard reset") %>%
+  group_by(`OS version and architecture`) %>%
+  summarize(number_hardresets = n())
+
+# Dataframes with all installs/uninstalls used for timeseries graphs with operations and hard resets
+df.operations <- df.installations %>%
+    mutate(Time = dmy_hms(Time.of.installation),
+         Day = day(Time),
+         Hour = hour(Time)) %>%
+  group_by(Day,Hour, Operation.type) %>%
+  summarize(number_operations = n())
+```
+
+<br/><br/>
+
+### Creating graphs
+
+#### Number of hard resets per build, Windows 10 Enterprise 1809 (64 bits)
+```{r echo=T,eval=T,warning=FALSE, message=FALSE, fig.width=13,fig.height=8}
+# All Manufacturers
+df.events  %>%
+  inner_join(df.devices.hardresets, by = c("Device name" = "Name")) %>% 
+  group_by(`OS version and architecture`, `OS build`) %>%
+  summarize(number_crashes = n()) %>%
+  inner_join(df.all.builds, by = c("OS build" = "OS build")) %>%
+  filter(grepl("Windows 10 Enterprise 1809 (64 bits)",`OS version and architecture`, fixed = T)) %>%
+  ggplot(mapping = aes(x = reorder(`OS build`, -devices_per_build))) +
+  geom_bar(mapping = aes(y = devices_per_build), stat = "identity", fill = "#EEF3F7", colour = "#1046A8") +
+  geom_line(mapping = aes(y = number_crashes*5), stat = "identity", colour = "red", group = 1) +
+  geom_point(mapping = aes(y = number_crashes*5), stat = "identity", colour = "red", group = 1) +
+  scale_y_continuous(sec.axis = sec_axis(~./5, name = "Hard Resets")) +
+  theme_linedraw() +
+  labs(x ="", y = "Number of devices", title = "Number of Hard Resets for Windows 10 Enterprise 1809 (64 bits)")+
+  theme(text = element_text(size = 15),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.y.right = element_text(vjust = 0.5, color = "red"),
+        axis.text.y.right = element_text(color = "red"),
+        plot.title = element_text(hjust = 0.5))
+```
+
+<br/><br/>
+
+#### Number of hard resets per build, Windows 10 Enterprise 1709 (64 bits)
+```{r echo=T,eval=T,warning=FALSE, message=FALSE, fig.width=13,fig.height=8}
+# All Manufacturers
+df.events  %>%
+  inner_join(df.devices.hardresets, by = c("Device name" = "Name")) %>% 
+  group_by(`OS version and architecture`, `OS build`) %>%
+  summarize(number_crashes = n()) %>%
+  inner_join(df.all.builds, by = c("OS build" = "OS build")) %>%
+  filter(grepl("Windows 10 Enterprise 1709 (64 bits)",`OS version and architecture`, fixed = TRUE)) %>%
+  ggplot(mapping = aes(x = reorder(`OS build`, -devices_per_build))) +
+  geom_bar(mapping = aes(y = devices_per_build), stat = "identity", fill = "#EEF3F7", colour = "#1046A8") +
+  geom_line(mapping = aes(y = number_crashes*5), stat = "identity", colour = "red", group = 1) +
+  geom_point(mapping = aes(y = number_crashes*5), stat = "identity", colour = "red", group = 1) +
+  scale_y_continuous(sec.axis = sec_axis(~./5, name = "Hard Resets")) +
+  theme_linedraw() +
+  labs(x ="", y = "Number of devices", title = "Number of Hard Resets for Windows 10 Enterprise 1709 (64 bits)")+
+  theme(text = element_text(size = 15),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.y.right = element_text(vjust = 0.5, color = "red"),
+        axis.text.y.right = element_text(color = "red"),
+        plot.title = element_text(hjust = 0.5))
+```
+
+<br/><br/>
+
+#### Hard Resets by Device manufactureres
+
+```{r echo=T,eval=T,warning=FALSE, message=FALSE, fig.width=13,fig.height=8}
+# All Manufacturers
+df.events  %>%
+  inner_join(df.devices.hardresets, by = c("Device name" = "Name")) %>% 
+  group_by(`Device manufacturer`) %>%
+  summarize(number_crashes = n()) %>%
+  inner_join(df.all.manufactur, by = c("Device manufacturer" = "Device manufacturer")) %>%
+  mutate(ratio_crashes_devices = number_crashes/devices_per_manufacturer*10) %>%
+  ggplot(mapping = aes(x=`Device manufacturer`)) +
+  geom_col(mapping = aes(y = devices_per_manufacturer), width = .4, fill = "#111F65", position = position_nudge(-.2), colour = "Black", alpha = 0.9) +
+  geom_col(mapping = aes(y = number_crashes*5), fill = "#FF7461", width = .4, position = position_nudge(.2), colour = "Black", alpha = 0.9) +
+  theme_linedraw() +
+  labs(x ="",y = "Devices", title = "Hard Resets by manufactureres")+
+  scale_y_continuous(sec.axis = sec_axis(~ . /5 ,name = "Hard resets")) +
+  theme(
+    axis.title.y.right = element_text(vjust = 0.5, color = "#FF7461"),
+    axis.text.y.right = element_text(color = "#FF7461"),
+    text = element_text(size = 18),
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+<br/><br/>
+
+#### Hard reset for Lenovo models
+
+```{r echo=T,eval=T,warning=FALSE, message=FALSE, fig.width=15,fig.height=8}
+#Lenovo Only
+df.events  %>%
+  inner_join(df.devices.hardresets, by = c("Device name" = "Name")) %>% 
+  filter(`Device manufacturer` == "Lenovo") %>%
+  group_by(`Device manufacturer`, `Device product version`) %>%
+  summarize(number_of_crashes= n()) %>%
+  inner_join(df.all.levovo, by = c("Device product version" = "Device product version" )) %>%
+  mutate(ratio_crashes_device_model = number_of_crashes/devices_model) %>%
+  arrange(desc(ratio_crashes_device_model)) %>%
+  ggplot(mapping = aes(x=`Device product version`)) +
+  geom_col(mapping = aes(y = devices_model), width = .4, fill = "#111F65", position = position_nudge(-.2), colour = "Black", alpha = 0.9) +
+  geom_col(mapping = aes(y = number_of_crashes*5), fill = "#FF7461", width = .4, position = position_nudge(.2), colour = "Black", alpha = 0.9) +
+  theme_linedraw() +
+  labs(x ="",y = "Devices", title = "Hard Resets for Lenovo Models")+
+  scale_y_continuous(sec.axis = sec_axis(~ . /5 ,name = "Hard Resets")) +
+  theme(
+    axis.title.y.right = element_text(vjust = 0.5, color = "#FF7461"),
+    axis.text.y.right = element_text(color = "#FF7461"),
+    text = element_text(size = 18),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5)
+  )
+``` 
+
+
+
+<br/><br/>
+
+#### Hard reset classified by Error Code
+
+```{r echo=T,eval=T,warning=FALSE, message=FALSE, fig.width=13,fig.height=8}
+df.events %>%
+  mutate(Issue_Time = dmy_hms(Time)) %>%
+  mutate(Issue_Time = round_date(Issue_Time, unit = "day")) %>%
+  group_by(Issue_Time, `Error code`) %>%
+  summarize(count_n = n()) %>%
+  filter(`count_n` > 1) %>%
+  ggplot() +
+  geom_bar(mapping = aes(x = Issue_Time, y = count_n, fill = `Error code`), stat = "identity", color = "black", alpha=0.7) +
+  theme_minimal() +
+  scale_fill_manual(values = c("#111F65", "#3194F7", "#1046A8", "#F9BA37", "#BA74D2", "#08B3AB", "#FF7461", "#B3BBC8", "#F7F9FB", "#63676E")) +
+  labs(x= "",y = "Number of crashes", title = "Number of Hard Resets last 7 days grouped by Error Code") +
+  theme(text = element_text(size = 18),
+        plot.title = element_text(hjust = 0.5))
+```
+
+
+<br/><br/>
+
+#### Evoluation of hard resets over time
+
+```{r echo=T,eval=T,warning=FALSE, message=FALSE, fig.width=13,fig.height=8}
+df.events %>%
+  mutate(Time = dmy_hms(Time),
+         Day = day(Time),
+         Hour = hour(Time)) %>%
+  group_by(Day,Hour) %>%
+  summarize(count_n = n()) %>%
+  filter(Day != 10) %>%
+  ggplot() +
+  geom_line(mapping = aes(x = Hour, y = count_n), color = "red") +
+  geom_point(mapping = aes(x = Hour, y = count_n), color = "red") +
+  facet_wrap(~Day) +
+  theme_light() +
+  labs(x = "",y = "Hard Resets", title = "Number of hard resets from 4th to 9th of March") +
+  theme(strip.background = element_rect(
+        color="black", fill="#EEF3F7", size=0.5, linetype="solid"),
+        strip.text = element_text(color = "black"),
+        plot.title = element_text(hjust = 0.5),
+        text = element_text(size = 15))
+```
+
+
+
+<br/><br/>
+
+#### Hard resets compared to Installs and Uninstalls
+
+```{r echo=T,eval=T,warning=FALSE, message=FALSE, fig.width=13,fig.height=8}
+df.events %>%
+  mutate(Time = dmy_hms(Time),
+         Day = day(Time),
+         Hour = hour(Time)) %>%
+  group_by(Day,Hour) %>%
+  summarize(number_hard_resets = n()) %>%
+  inner_join(df.operations, c("Day" = "Day", "Hour" = "Hour")) %>%
+  filter(Day != 10) %>%
+  ggplot() +
+  geom_line(mapping = aes(x = Hour, y = number_hard_resets*10), color = "red", stat = "identity") +
+  #geom_point(mapping = aes(x = Hour, y = number_hard_resets), color = "orange") +
+  geom_freqpoly(mapping = aes(x = Hour, y = number_operations), stat = "identity", colour = "blue") +
+  scale_y_continuous(sec.axis = sec_axis(~./10, name = "Hardresets")) +
+  facet_wrap(~Day) +
+  theme_light() +
+  labs(x = "", y = "Installations and Uninstallations", title = "Hard resets and Operations") +
+  theme(strip.background = element_rect(
+        color="black", fill="#EEF3F7", size=0.5, linetype="solid"),
+        axis.title.y.right = element_text(vjust = 0.5, color = "red"),
+        axis.text.y.right = element_text(color = "red"),
+        strip.text = element_text(color = "black"),
+        plot.title = element_text(hjust = 0.5),
+        text = element_text(size = 15))
+```
+
+<br/><br/>
+
+#### Package type 
+Let's focus on days 5, and see what operations are being performed between 7.30 AM and 10 AM
+
+```{r echo=T,eval=T,warning=FALSE, message=FALSE, fig.width=13,fig.height=8}
+df.installations %>%
+  mutate(Time.of.installation = dmy_hms(Time.of.installation)) %>%
+  filter(day(Time.of.installation) %in% c(5) & (hour(Time.of.installation) > 7.5 & hour(Time.of.installation) < 10)) %>%
+  group_by(Package.name, Package.version, Package.type) %>%
+  summarize(count_n = n()) %>%
+  arrange(-count_n)
+```
+
+<br/><br/>
+
+#### Operation type
+```{r echo=T,eval=T,warning=FALSE, message=FALSE, fig.width=13,fig.height=8}
+df.events %>%
+  mutate(Time = dmy_hms(Time),
+         Day = day(Time),
+         Hour = hour(Time)) %>%
+  group_by(Day,Hour) %>%
+  summarize(number_hard_resets = n()) %>%
+  inner_join(df.operations, c("Day" = "Day", "Hour" = "Hour")) %>%
+  filter(Day == 5) 
+```
+
+
+<br/><br/>
+
+#### Number of logons over time
+```{r echo=T,eval=T,warning=FALSE, message=FALSE, fig.width=13,fig.height=8}
+df.devices.hardresets %>%
+  mutate(Logon_Time = dmy_hms(`Last logon time`),
+         Logon_Day = day(Logon_Time),
+         Logon_Hour = hour(Logon_Time)) %>%
+  group_by(Logon_Day, Logon_Hour) %>%
+  summarize(count_n = n()) %>%
+  ungroup() %>%
+  filter(Logon_Day %in% c(4,5,6,7,8,9)) %>%
+  ggplot() +
+  geom_line(mapping = aes(x = Logon_Hour, y = count_n), color = "blue",group = 1) +
+  geom_point(mapping = aes(x = Logon_Hour, y = count_n), color = "orange",group = 1) +
+  facet_wrap(~Logon_Day) +
+  theme_light() +
+  labs(x = "",y = "Number of Logons", title = "Number of logons from 4th to the 9th of March") +
+  theme(strip.background = element_rect(
+    color="black", fill="#3194F7", size=1, linetype="solid"),
+    plot.title = element_text(hjust = 0.5),
+    text = element_text(size = 15))
+```
+
+
+
+
+<br/><br/>
+
+
+
+#### Number of hard reset by locations
+```{r echo=T,eval=T,warning=FALSE, message=FALSE, fig.width=16,fig.height=10}
+df.warnings %>%
+  inner_join(df.all.devices, by = c("Device name" = "Name")) %>%
+  mutate(type = ifelse(grepl("cpu", .$`Event info`), "CPU", ifelse(grepl("memory", .$`Event info`),"Memory", "IO"))) %>%
+  filter(type == "CPU") %>%
+  group_by(Entity) %>%
+  summarize(warning_counts = n()) %>%
+  inner_join(df.all.entity, ., by = c("Entity" = "Entity")) %>%
+  inner_join(df.hardreset.entity, by = c("Entity" = "Entity")) %>%
+  mutate(ratio_crashes_devices = number_hardresets/devices_per_entity,
+         ratio_warnings_devices = warning_counts/devices_per_entity) %>%
+ ggplot(mapping = aes(x=`Entity`)) +
+  geom_col(mapping = aes(y = devices_per_entity), width = .4, fill = "#111F65", position = position_nudge(-.2), colour = "Black", alpha = 0.9) +
+  #geom_line(mapping = aes(y = warning_counts), stat = "identity", group =1, colour ="#F9BA37") +
+  geom_col(mapping = aes(y = number_hardresets*7), fill = "#FF7461", width = .4, position = position_nudge(.2), colour = "Black", alpha = 0.9) +
+  geom_label(aes(y = devices_per_entity + 400, label = paste("#Warnings\n",warning_counts)), colour = "red", size = 5) +
+  theme_linedraw() +
+  labs(x ="",y = "Number of Devices", title = "Hard Resets by Entity")+
+  scale_y_continuous(sec.axis = sec_axis(~ . /7 ,name = "Number of Hardresets")) +
+  theme(
+    axis.title.y.right = element_text(vjust = 0.5, color = "#FF7461"),
+    axis.text.y.right = element_text(color = "#FF7461"),
+    text = element_text(size = 24),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5),
+    legend.position = "bottom"
+  )
+```
+
+
+<br/><br/><br/>
+
+#### Hard reset by OS
+```{r echo=T,eval=T,warning=FALSE, message=FALSE, fig.width=15,fig.height=8}
+df.warnings %>%
+  inner_join(df.devices.hardresets, by = c("Device name" = "Name")) %>%
+  mutate(type = ifelse(grepl("cpu", .$`Event info`), "CPU", ifelse(grepl("memory", .$`Event info`),"Memory", "IO"))) %>%
+  filter(type == "CPU") %>%
+  group_by(`OS version and architecture`) %>%
+  summarize(warning_counts = n()) %>%
+  inner_join(df.all.os, ., by = c("OS version and architecture" = "OS version and architecture")) %>%
+  inner_join(df.hardreset.os, by = c("OS version and architecture" = "OS version and architecture")) %>%
+  mutate(ratio_crashes_devices = number_hardresets/devices_per_os,
+         ratio_warnings_devices = warning_counts/devices_per_os) %>%
+  mutate(`OS version and architecture` = str_remove_all(`OS version and architecture`," \\(.*\\)")) %>%
+  mutate(`OS version and architecture` = str_replace_all(`OS version and architecture`,"Windows", "W")) %>%
+  mutate(`OS version and architecture` = str_replace_all(`OS version and architecture`,"Enterprise", "E")) %>%
+  mutate(`OS version and architecture` = str_replace_all(`OS version and architecture`,"Professional", "Pro")) %>%
+  ggplot(mapping = aes(x=`OS version and architecture`)) +
+  geom_col(mapping = aes(y = devices_per_os), width = .4, fill = "#111F65", position = position_nudge(-.2), colour = "Black", alpha = 0.9) +
+  #geom_line(mapping = aes(y = warning_counts), stat = "identity", group =1, colour ="#F9BA37") +
+  geom_col(mapping = aes(y = number_hardresets*7), fill = "#FF7461", width = .4, position = position_nudge(.2), colour = "Black", alpha = 0.9) +
+  geom_label(aes(y = devices_per_os + 700, label = paste("#Warnings\n",warning_counts)), colour = "red", size = 5) +
+  theme_linedraw() +
+  labs(x ="",y = "Number of Devices", title = "Hard Resets by OS")+
+  scale_y_continuous(sec.axis = sec_axis(~ . /7 ,name = "Number of Hardresets")) +
+  theme(
+    axis.title.y.right = element_text(vjust = 0.5, color = "#FF7461"),
+    axis.text.y.right = element_text(color = "#FF7461"),
+    text = element_text(size = 18),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5),
+    legend.position = "bottom"
+  )
+```
+
+
+<br/><br/>
+
+#### Crashes vs most recent Windows update
+```{r echo=T,eval=T,warning=FALSE, message=FALSE, fig.width=15,fig.height=7}
+df.devices.hardresets %>%
+  mutate(`Last system update` = dmy_hms(`Last system update`)) %>%
+  na.omit() %>%
+  mutate(Last_update_year = year(`Last system update`),
+         Last_update_month = month(`Last system update`),
+         Last_update_month_year = paste(Last_update_year,Last_update_month, sep = "/")) %>%
+  mutate(Last_update_month_year = ymd(Last_update_month_year, truncated = 1)) %>%
+  mutate(`OS version and architecture` = str_remove_all(`OS version and architecture`," \\(.*\\)")) %>%
+  mutate(`OS version and architecture` = str_replace_all(`OS version and architecture`,"Windows", "W")) %>%
+  mutate(`OS version and architecture` = str_replace_all(`OS version and architecture`,"Enterprise", "E")) %>%
+  mutate(`OS version and architecture` = str_replace_all(`OS version and architecture`,"Professional", "Pro")) %>%
+  group_by(Last_update_month_year, `OS version and architecture`) %>%
+  summarize(number_devices_with_crashes = n()) %>%
+  ggplot(aes( x= `Last_update_month_year`)) +
+  geom_bar(aes(y = number_devices_with_crashes, fill = `OS version and architecture`), stat = "identity", position = "stack", color = "black", alpha = 0.8) +
+  labs(x = "Last Windows update", title = "Number of devices with crashes last 7 days", fill = "OS") +
+  theme_minimal() +
+  scale_fill_manual(values = c("#111F65", "#3194F7", "#1046A8", "#F9BA37", "#BA74D2", "#08B3AB", "#FF7461")) +
+  scale_x_date(date_breaks="2 month", date_labels="%Y %m") + 
+  theme(text = element_text(size = 15),
+        plot.title = element_text(hjust = 0.5),
+        axis.title.x = element_text(margin = margin(t = 20, b = 20)),
+        axis.title.y = element_blank())
+```
+
+
+
+
+
+```{r echo=F,eval=F,warning=FALSE, message=FALSE, fig.width=13,fig.height=8}
+# All Manufacturers
+df.events  %>%
+  inner_join(df.devices.hardresets, by = c("Device name" = "Name")) %>% 
+  group_by(`Device manufacturer`) %>%
+  summarize(number_crashes = n()) %>%
+  inner_join(df.all.manufactur, by = c("Device manufacturer" = "Device manufacturer")) %>%
+  mutate(ratio_crashes_devices = number_crashes/devices_per_manufacturer*10) %>%
+  ggplot(aes(x = reorder(`Device manufacturer`, -devices_per_manufacturer))) +
+  geom_bar(mapping = aes(y = ratio_crashes_devices), stat = "identity", fill = "#111F65", color = "orange") +
+  geom_text(aes(y = (ratio_crashes_devices + 0.1), label = paste("",devices_per_manufacturer))) +
+  labs(x = "", y ="", title = "Ratio of Crashes per Number of Devices, by Manufacturer") +
+  theme_minimal() +
+  theme(text = element_text(size = 15),
+        plot.title = element_text(hjust = 0.5))
+ggsave("images/ratio_crashes_devices_by_manufacturer.png")
+```
+
+```{r echo=F,eval=F,warning=FALSE, message=FALSE, fig.width=15,fig.height=8}
+#Lenovo Only
+df.events  %>%
+  inner_join(df.devices.hardresets, by = c("Device name" = "Name")) %>% 
+  filter(`Device manufacturer` == "Lenovo") %>%
+  group_by(`Device manufacturer`, `Device product version`) %>%
+  summarize(number_of_crashes= n()) %>%
+  inner_join(df.all.levovo, by = c("Device product version" = "Device product version" )) %>%
+  mutate(ratio_crashes_device_model = number_of_crashes/devices_model) %>%
+  arrange(desc(ratio_crashes_device_model)) %>%
+  ggplot(aes(x = reorder(`Device product version`, -devices_model))) +
+  geom_bar(aes(y = ratio_crashes_device_model), stat = "identity", fill = "#111F65", color = "orange") +
+  geom_text(aes(y = (ratio_crashes_device_model + 0.05), label = paste("",devices_model)))+
+  labs(x = "", y ="",title = "Ratio of Crashes per Number of devices, by Lenovo Models")+
+  theme_minimal() +
+  theme(text = element_text(size = 15),
+        plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+ggsave("images/ratio_crashes_devices_for_lenovo.png")
+``` 
+
+
+```{r echo=F,eval=F,warning=FALSE, message=FALSE, fig.width=13,fig.height=8}
+df.warnings %>%
+  inner_join(df.devices.hardresets, by = c("Device name" = "Name")) %>%
+  mutate(type = ifelse(grepl("cpu", .$`Event info`), "CPU", ifelse(grepl("memory", .$`Event info`),"Memory", "IO"))) %>%
+  filter(type == "CPU") %>%
+  group_by(`OS version and architecture`) %>%
+  summarize(warning_counts = n()) %>%
+  inner_join(df.all.os, ., by = c("OS version and architecture" = "OS version and architecture")) %>%
+  inner_join(df.hardreset.os, by = c("OS version and architecture" = "OS version and architecture")) %>%
+  mutate(ratio_crashes_devices = number_hardresets/devices_per_os,
+         ratio_warnings_devices = warning_counts/devices_per_os) %>%
+  mutate(`OS version and architecture` = str_remove_all(`OS version and architecture`," \\(.*\\)")) %>%
+  mutate(`OS version and architecture` = str_replace_all(`OS version and architecture`,"Windows", "W")) %>%
+  mutate(`OS version and architecture` = str_replace_all(`OS version and architecture`,"Enterprise", "E")) %>%
+  mutate(`OS version and architecture` = str_replace_all(`OS version and architecture`,"Professional", "Pro")) %>%
+  ggplot(aes(x = reorder(`OS version and architecture`, desc(devices_per_os)))) +
+  geom_bar(mapping = aes(y = ratio_crashes_devices, colour = "Crashes by Devices"), fill="#EEF3F7", alpha = 0.7,
+           stat = "identity") +
+  geom_text(aes(y = (ratio_crashes_devices + 0.05), label = paste("",devices_per_os))) +
+  geom_line(mapping = aes(y = ratio_warnings_devices/10), stat = "identity", group =1, colour ="#F9BA37") +
+  geom_point(mapping = aes(y = ratio_warnings_devices/10, colour = "Warnings by Devices"), stat = "identity", group =1) +
+  labs(x = "", y = "Crashes", colour = "", title = "Ratio of crashes/warnings per Number of devices per OS") +
+  scale_y_continuous(sec.axis = sec_axis(~.*30, name = "Warnings")) +
+  theme_light() +
+  scale_colour_manual(values = c("#1046A8", "#F9BA37")) +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5))
+ggsave("images/ratio_crashes_warnings_by_devices_OS.png")
+```
+
+
+
+```{r echo=F,eval=F,warning=FALSE, message=FALSE, fig.width=13,fig.height=8}
+df.warnings %>%
+  inner_join(df.all.devices, by = c("Device name" = "Name")) %>%
+  mutate(type = ifelse(grepl("cpu", .$`Event info`), "CPU", ifelse(grepl("memory", .$`Event info`),"Memory", "IO"))) %>%
+  filter(type == "CPU") %>%
+  group_by(Entity) %>%
+  summarize(warning_counts = n()) %>%
+  inner_join(df.all.entity, ., by = c("Entity" = "Entity")) %>%
+  inner_join(df.hardreset.entity, by = c("Entity" = "Entity")) %>%
+  mutate(ratio_crashes_devices = number_hardresets/devices_per_entity,
+         ratio_warnings_devices = warning_counts/devices_per_entity) %>%
+  ggplot(aes(x = reorder(Entity, desc(devices_per_entity)))) +
+  geom_bar(mapping = aes(y = ratio_crashes_devices, colour = "Crashes by Devices"), stat = "identity", fill="#EEF3F7") +
+  geom_text(aes(y = (ratio_crashes_devices + 0.05), label = paste("",devices_per_entity))) +
+  geom_line(mapping = aes(y = ratio_warnings_devices/30), stat = "identity", group =1, colour ="#F9BA37") +
+  geom_point(mapping = aes(y = ratio_warnings_devices/30, colour = "Warnings by Devices"), stat = "identity", group =1) +
+  labs(x = "", y = "Crashes", colour = "", title = "Ratio of crashes/warnings per Number of devices per Entity") +
+  scale_y_continuous(sec.axis = sec_axis(~.*30, name = "Warnings")) +
+  theme_light() +
+  scale_colour_manual(values = c("#1046A8", "#F9BA37")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        text = element_text(size = 15),
+        legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5))
+ggsave("images/ratio_crashes_warnings_by_devices_entity.png")
+```

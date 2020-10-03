@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Investigation xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" DataModelVersion="13" SyntaxVersion="3">
+  <Label>ALL DEVICES</Label>
+  <Object>source</Object>
+  <Platforms>
+    <Platform>windows</Platform>
+  </Platforms>
+  <Description />
+  <FieldList>
+    <string>name</string>
+    <string>entity</string>
+    <string>directory_service_site</string>
+    <string>last_time</string>
+    <string>computer_type</string>
+    <string>manufacturer</string>
+    <string>model</string>
+    <string>product_version_id</string>
+    <string>cpu_model</string>
+    <string>cpu_frequency</string>
+    <string>cpu_number</string>
+    <string>ram</string>
+    <string>all_drives_total</string>
+    <string>os_name</string>
+    <string>last_login_time</string>
+    <string>days_since_updates</string>
+    <string>system_drive_free</string>
+    <string>all_drives_free</string>
+    <string>non_system_drives_free</string>
+    <string>last_updates</string>
+    <string>last_boot_time</string>
+  </FieldList>
+  <CategoryList />
+  <AggregateList />
+  <ObjectConditionList />
+</Investigation>
